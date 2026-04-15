@@ -1,0 +1,9 @@
+__global__ void integrate_velocities(int n, double m, double L, double dt,
+	double* vx, double* vy, double* vz, double* fx,
+	double* fy, double* fz, double* fx_old, double* fy_old, double* fz_old) {
+	int i = blockDim.x * blockIdx.x + threadIdx.x;
+	if (i >= n)return;
+	vx[i] += 0.5 * (fx[i] + fx_old[i]) / m * dt;
+	vy[i] += 0.5 * (fy[i] + fy_old[i]) / m * dt;
+	vz[i] += 0.5 * (fz[i] + fz_old[i]) / m * dt;
+}
