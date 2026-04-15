@@ -1,0 +1,101 @@
+__global__ void optimized_gpu_Leonard_Jones(int n, double sigma, double epsilon, double m, double r_cut2,
+	double U_shift, double L, double* x,
+	double* y, double* z, double* fx, double* fy, double* fz,
+	double* U) {
+	__shared__ double data_x[512];
+	__shared__ double data_y[512];
+	__shared__ double data_z[512];
+	__shared__ double U_block[512];
+	int i = blockDim.x * blockIdx.x + threadIdx.x;
+	double x_main = 0.0;
+	double y_main = 0.0;
+	double z_main = 0.0;
+	int tx = threadIdx.x;
+	if (i < n) {
+		fx[i] = 0.0;
+		fy[i] = 0.0;
+		fz[i] = 0.0;
+		x_main = x[i];
+		y_main = y[i];
+		z_main = z[i];
+	}
+	else {
+		x_main = 0.0;
+		y_main = 0.0;
+		z_main = 0.0;
+	}
+	double U_main = 0.0;
+	for (int ii = 0; ii < n; ii += blockDim.x) {
+		int global = ii + threadIdx.x;
+		if (global < n) {
+			data_x[threadIdx.x] = x[global];
+			data_y[threadIdx.x] = y[global];
+			data_z[threadIdx.x] = z[global];
+		}
+		else {
+			data_x[threadIdx.x] = 0.0;
+			data_y[threadIdx.x] = 0.0;
+			data_z[threadIdx.x] = 0.0;
+		}
+
+
+		__syncthreads();
+		if (i < n) {
+			for (int k = 0; k < blockDim.x; k++) {
+				//if (global == i || i>n || global>n)continue;
+				int global_check = ii + k;
+				if (global_check == i || global_check >= n)continue;
+				double dx = data_x[k] - x_main;
+				dx -= L * nearbyint(dx / L);
+				double dy = data_y[k] - y_main;
+				dy -= L * nearbyint(dy / L);
+				double dz = data_z[k] - z_main;
+				dz -= L * nearbyint(dz / L);
+				double r2 = dx * dx + dy * dy + dz * dz;
+				if (r2 > r_cut2 || r2 < 1e-20) continue;
+
+				double inv_r2 = sigma * sigma / r2;
+				double inv_r6 = inv_r2 * inv_r2 * inv_r2;
+				double inv_r12 = inv_r6 * inv_r6;
+
+				U_main += 4 * epsilon * (inv_r12 - inv_r6) - U_shift;
+				double F_scalar = 24 * epsilon * (2 * inv_r12 - inv_r6) / r2;
+				double fxx = -F_scalar * dx;
+				double fyy = -F_scalar * dy;
+				double fzz = -F_scalar * dz;
+				fx[i] += fxx;
+				fy[i] += fyy;
+				fz[i] += fzz;
+
+			}
+		}
+		__syncthreads();
+	}
+	if (i < n) {
+		U_block[tx] = U_main;
+	}
+	else {
+		U_block[tx] = 0.0;
+	}
+	__syncthreads();
+	for (int stride = blockDim.x / 2; stride > 32; stride /= 2) {
+		if (tx < stride) {
+			U_block[tx] += U_block[tx + stride];
+		}
+		__syncthreads();
+	}
+	__syncthreads();
+	if (tx < 32) {
+		volatile double* vdata = U_block;
+		vdata[tx] += vdata[tx + 32];
+		vdata[tx] += vdata[tx + 16];
+		vdata[tx] += vdata[tx + 8];
+		vdata[tx] += vdata[tx + 4];
+		vdata[tx] += vdata[tx + 2];
+		vdata[tx] += vdata[tx + 1];
+	}
+	if (tx == 0) {
+		atomicAddDouble(&U[0], 0.5 * U_block[0]);
+	}
+
+} 
