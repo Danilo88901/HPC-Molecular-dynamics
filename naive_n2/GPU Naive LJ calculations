@@ -1,0 +1,39 @@
+__global__ void gpu_Leonard_Jones(int n, double sigma, double epsilon, double m, double r_cut2,
+	double U_shift, double L, double* x,
+	double* y, double* z, double* fx, double* fy, double* fz,
+	double* U) {
+	int i = blockDim.x * blockIdx.x + threadIdx.x;
+	if (i >= n)return;
+	fx[i] = 0.0;
+	fy[i] = 0.0;
+	fz[i] = 0.0;
+	double x_main = x[i];
+	double y_main = y[i];
+	double z_main = z[i];
+	double U_main = 0.0;
+	for (int j = 0; j < n; j++) {
+		if (i == j)continue;
+		double dx = x[j] - x_main;
+		dx -= L * nearbyint(dx / L);
+		double dy = y[j] - y_main;
+		dy -= L * nearbyint(dy / L);
+		double dz = z[j] - z_main;
+		dz -= L * nearbyint(dz / L);
+		double r2 = dx * dx + dy * dy + dz * dz;
+		if (r2 > r_cut2)continue;
+		double inv_r2 = sigma * sigma / r2;
+		double inv_r6 = inv_r2 * inv_r2 * inv_r2;
+		double inv_r12 = inv_r6 * inv_r6;
+
+		U_main += 4 * epsilon * (inv_r12 - inv_r6) - U_shift;
+		double F_scalar = 24 * epsilon * (2 * inv_r12 - inv_r6) / r2;
+		double fxx = -F_scalar * dx;
+		double fyy = -F_scalar * dy;
+		double fzz = -F_scalar * dz;
+		fx[i] += fxx;
+		fy[i] += fyy;
+		fz[i] += fzz;
+	}
+
+	atomicAddDouble(&U[0], 0.5 * U_main);
+}
