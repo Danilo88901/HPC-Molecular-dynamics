@@ -211,8 +211,7 @@ __global__ void optimized_gpu_Leonard_Jones(int n, double sigma, double epsilon,
 void gpu_optimized() {
 	std::mt19937 gen(42); 
 
-	std::ofstream file("gpu_optimized_energy.csv");
-	file << "step,K,U,E\n";
+
 	int size = n * sizeof(double);
 	double* x = (double*)malloc(size);
 	double* y = (double*)malloc(size);
