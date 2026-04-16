@@ -1,0 +1,303 @@
+double kb = 1.380649e-23;
+double sigma = 3.405e-10;
+double epsilon = 1.654e-21;
+double m = 6.6335e-26;
+double r_cut2 = (2.5 * sigma) * (2.5 * sigma);
+double invr2 = sigma * sigma / r_cut2;
+double invr6 = invr2 * invr2 * invr2;
+double invr12 = invr6 * invr6;
+double U_shift = 4 * epsilon * (invr12 - invr6);
+double T = 80.0;
+double M_PI = 3.1415926535;
+double v_std = sqrt(kb * T / m);
+double kinetic_energy(int n, double m, double* vx, double* vy, double* vz) {
+	double K = 0.0;
+	for (int i = 0; i < n; i++) {
+		K += 0.5 * m * (vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]);
+	}
+	return K;
+}
+double temperature(int n, double m, double* vx, double* vy, double* vz) {
+	double K = kinetic_energy(n, m, vx, vy, vz);
+	int f = 3 * n - 3;
+	return 2 * K / (f * kb);
+}
+void init_velocities(int n, double* vx, double* vy, double* vz, std::mt19937& gen,
+	double v_std) {
+	std::normal_distribution<double>dist(0.0, v_std);
+	for (int i = 0; i < n; i++) {
+		vx[i] = dist(gen);
+		vy[i] = dist(gen);
+		vz[i] = dist(gen);
+	}
+	double vx_sum = 0.0;
+	double vy_sum = 0.0;
+	double vz_sum = 0.0;
+	for (int i = 0; i < n; i++) {
+		vx_sum += vx[i];
+		vy_sum += vy[i];
+		vz_sum += vz[i];
+	}
+	vx_sum /= n;
+	vy_sum /= n;
+	vz_sum /= n;
+	for (int i = 0; i < n; i++) {
+		vx[i] -= vx_sum;
+		vy[i] -= vy_sum;
+		vz[i] -= vz_sum;
+	}
+}
+double init_positions(int n,
+	double* x, double* y, double* z,
+	double density,
+	double mass)
+{
+	// сколько атомов по ребру
+	int n_side = std::ceil(std::cbrt(n));
+
+	// общий объём системы из плотности
+	double V = (n * mass) / density;
+
+	// длина кубической коробки
+	double L = std::cbrt(V);
+
+	// решётка внутри коробки
+	double spacing = L / n_side;
+
+	int count = 0;
+	for (int i = 0; i < n_side; i++) {
+		for (int j = 0; j < n_side; j++) {
+			for (int k = 0; k < n_side; k++) {
+				if (count < n) {
+					x[count] = i * spacing;
+					y[count] = j * spacing;
+					z[count] = k * spacing;
+					count++;
+				}
+			}
+		}
+	}
+
+	return L;
+}
+double dt = 1e-15;
+int n = 9 * 9 * 9;
+int steps = 50000; 
+__device__ double atomicAddDouble(double* address, double val) {
+	unsigned long long int* address_as_ull =
+		(unsigned long long int*)address;
+
+	unsigned long long int old = *address_as_ull;
+	unsigned long long int assumed;
+
+	do {
+		assumed = old;
+		double new_val = __longlong_as_double(assumed) + val;
+		old = atomicCAS(address_as_ull,
+			assumed,
+			__double_as_longlong(new_val));
+	} while (assumed != old);
+
+	return __longlong_as_double(old);
+}
+__global__ void optimized_gpu_Leonard_Jones(int n, double sigma, double epsilon, double m, double r_cut2,
+	double U_shift, double L, double* x,
+	double* y, double* z, double* fx, double* fy, double* fz,
+	double* U) {
+	__shared__ double data_x[512];
+	__shared__ double data_y[512];
+	__shared__ double data_z[512];
+	__shared__ double U_block[512];
+	int i = blockDim.x * blockIdx.x + threadIdx.x;
+	double x_main = 0.0;
+	double y_main = 0.0;
+	double z_main = 0.0;
+	int tx = threadIdx.x;
+	if (i < n) {
+		fx[i] = 0.0;
+		fy[i] = 0.0;
+		fz[i] = 0.0;
+		x_main = x[i];
+		y_main = y[i];
+		z_main = z[i];
+	}
+	else {
+		x_main = 0.0;
+		y_main = 0.0;
+		z_main = 0.0;
+	}
+	double U_main = 0.0;
+	for (int ii = 0; ii < n; ii += blockDim.x) {
+		int global = ii + threadIdx.x;
+		if (global < n) {
+			data_x[threadIdx.x] = x[global];
+			data_y[threadIdx.x] = y[global];
+			data_z[threadIdx.x] = z[global];
+		}
+		else {
+			data_x[threadIdx.x] = 0.0;
+			data_y[threadIdx.x] = 0.0;
+			data_z[threadIdx.x] = 0.0;
+		}
+
+
+		__syncthreads();
+		if (i < n) {
+			for (int k = 0; k < blockDim.x; k++) {
+				double dx = data_x[k] - x_main;
+				dx -= L * nearbyint(dx / L);
+				double dy = data_y[k] - y_main;
+				dy -= L * nearbyint(dy / L);
+				double dz = data_z[k] - z_main;
+				dz -= L * nearbyint(dz / L);
+				double r2 = dx * dx + dy * dy + dz * dz;
+				if (r2 > r_cut2 || r2 < 1e-20) continue;
+
+				double inv_r2 = sigma * sigma / r2;
+				double inv_r6 = inv_r2 * inv_r2 * inv_r2;
+				double inv_r12 = inv_r6 * inv_r6;
+
+				U_main += 4 * epsilon * (inv_r12 - inv_r6) - U_shift;
+				double F_scalar = 24 * epsilon * (2 * inv_r12 - inv_r6) / r2;
+				double fxx = -F_scalar * dx;
+				double fyy = -F_scalar * dy;
+				double fzz = -F_scalar * dz;
+				fx[i] += fxx;
+				fy[i] += fyy;
+				fz[i] += fzz;
+
+			}
+		}
+		__syncthreads();
+	}
+	if (i < n) {
+		U_block[tx] = U_main;
+	}
+	else {
+		U_block[tx] = 0.0;
+	}
+	__syncthreads();
+	for (int stride = blockDim.x / 2; stride > 32; stride /= 2) {
+		if (tx < stride) {
+			U_block[tx] += U_block[tx + stride];
+		}
+		__syncthreads();
+	}
+	__syncthreads();
+	if (tx < 32) {
+		volatile double* vdata = U_block;
+		vdata[tx] += vdata[tx + 32];
+		vdata[tx] += vdata[tx + 16];
+		vdata[tx] += vdata[tx + 8];
+		vdata[tx] += vdata[tx + 4];
+		vdata[tx] += vdata[tx + 2];
+		vdata[tx] += vdata[tx + 1];
+	}
+	if (tx == 0) {
+		atomicAddDouble(&U[0], 0.5 * U_block[0]);
+	}
+
+}
+
+
+
+void gpu_optimized() {
+	std::mt19937 gen(42); 
+
+	std::ofstream file("gpu_optimized_energy.csv");
+	file << "step,K,U,E\n";
+	int size = n * sizeof(double);
+	double* x = (double*)malloc(size);
+	double* y = (double*)malloc(size);
+	double* z = (double*)malloc(size);
+	double density = 1400.0;//кг/м3
+	double L = init_positions(n, x, y, z, density, m);
+	double* vx = (double*)malloc(size);
+	double* vy = (double*)malloc(size);
+	double* vz = (double*)malloc(size);
+	init_velocities(n, vx, vy, vz, gen,v_std);
+	double* d_x, * d_y, * d_z, * d_vx, * d_vy, * d_vz;
+	cudaMalloc(&d_x, size);
+	cudaMalloc(&d_y, size);
+	cudaMalloc(&d_z, size);
+	cudaMalloc(&d_vx, size);
+	cudaMalloc(&d_vy, size);
+	cudaMalloc(&d_vz, size);
+
+	cudaMemcpy(d_x, x, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_y, y, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_z, z, size, cudaMemcpyHostToDevice);
+
+	cudaMemcpy(d_vx, vx, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_vy, vy, size, cudaMemcpyHostToDevice);
+	cudaMemcpy(d_vz, vz, size, cudaMemcpyHostToDevice);
+	double* d_fx, * d_fy, * d_fz, * d_fx_old, * d_fy_old, * d_fz_old;
+	cudaMalloc(&d_fx, size);
+	cudaMalloc(&d_fy, size);
+	cudaMalloc(&d_fz, size);
+	cudaMalloc(&d_fx_old, size);
+	cudaMalloc(&d_fy_old, size);
+	cudaMalloc(&d_fz_old, size);
+
+	cudaMemset(d_fx, 0, size);
+	cudaMemset(d_fy, 0, size);
+	cudaMemset(d_fz, 0, size);
+
+	cudaMemset(d_fx_old, 0, size);
+	cudaMemset(d_fy_old, 0, size);
+	cudaMemset(d_fz_old, 0, size);
+
+	double* d_U, * d_U_total;
+	//cudaMalloc(&d_U, size);
+	//cudaMemset(d_U, 0, size);
+	cudaMalloc(&d_U_total, sizeof(double));
+	cudaMemset(d_U_total, 0, sizeof(double));
+	int block_size = 512;
+	int grid_size = (n + block_size - 1) / block_size;
+	double U_ponetial_sum = 0.0;
+	optimized_gpu_Leonard_Jones << <grid_size, block_size >> > (n, sigma, epsilon, m, r_cut2, U_shift, L, d_x, d_y, d_z,
+		d_fx, d_fy, d_fz, d_U_total);
+	cudaError_t err = cudaGetLastError();
+
+
+	if (err != cudaSuccess) {
+		std::cout << "Kernel launch error: "
+			<< cudaGetErrorString(err) << std::endl;
+	}
+
+	for (int i = 0; i < steps; i++) {
+		cudaMemset(d_U_total, 0, sizeof(double));
+		integrate_coordinates << <grid_size, block_size >> > (n, m, L, dt, d_x, d_y, d_z, d_vx, d_vy, d_vz,
+			d_fx, d_fy, d_fz, d_fx_old, d_fy_old, d_fz_old);
+		optimized_gpu_Leonard_Jones << <grid_size, block_size >> > (n, sigma, epsilon, m, r_cut2, U_shift, L, d_x, d_y, d_z,
+			d_fx, d_fy, d_fz, d_U_total);
+		cudaError_t err = cudaGetLastError();
+		if (err != cudaSuccess) {
+			std::cout << "Kernel launch error: "
+				<< cudaGetErrorString(err) << std::endl;
+		}
+		//reduction << <grid_size, block_size >> > (n, d_U, d_U_total);
+		integrate_velocities << <grid_size, block_size >> > (n, m, L, dt, d_vx, d_vy, d_vz, d_fx, d_fy, d_fz,
+			d_fx_old, d_fy_old, d_fz_old);
+		if (i % 1000 == 0) {
+
+			cudaMemcpy(&U_ponetial_sum, d_U_total, sizeof(double), cudaMemcpyDeviceToHost);
+			cudaMemcpy(vx, d_vx, size, cudaMemcpyDeviceToHost);
+			cudaMemcpy(vy, d_vy, size, cudaMemcpyDeviceToHost);
+			cudaMemcpy(vz, d_vz, size, cudaMemcpyDeviceToHost);
+			double K = kinetic_energy(n, m, vx, vy, vz);
+			double T = temperature(n, m, vx, vy, vz);
+			double E = K + U_ponetial_sum;
+			std::cout << "Total energy:" << E << " ";
+			std::cout << "Kinetic energy:" << K << " ";
+			std::cout << "Potential energy:" << U_ponetial_sum << " ";
+			std::cout << "Temperature:" << T << " ";
+			std::cout << std::endl;
+		}
+
+	}
+
+}
+int main(){
+gpu_optimized();
+}
