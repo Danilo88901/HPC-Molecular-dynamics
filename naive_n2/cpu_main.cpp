@@ -10,7 +10,6 @@ int steps=10000;
 int size=n*sizeof(double);
 
 
-
 int  main() {
 	std::random_device rd;
 	std::mt19937 gen(rd());
