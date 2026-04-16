@@ -1,10 +1,17 @@
 #include <iostream>
 #include <random>
-#include "constants.h"
-#include "parameters.h"
-#include"derived parameters.h"
-#include "thermodynamics.h"
-#include "initialization.h"
+double kb = 1.380649e-23;
+double sigma = 3.405e-10;
+double epsilon = 1.654e-21;
+double m = 6.6335e-26;
+double r_cut2 = (2.5 * sigma) * (2.5 * sigma);
+double invr2 = sigma * sigma / r_cut2;
+double invr6 = invr2 * invr2 * invr2;
+double invr12 = invr6 * invr6;
+double U_shift = 4 * epsilon * (invr12 - invr6);
+double T = 80.0;
+double M_PI = 3.1415926535;
+double v_std = sqrt(kb * T / m);
 double Lennard_Jones(int n, double sigma, double epsilon, double m, double r_cut2,
 	double U_shift, double L, double* x,
 	double* y, double* z, double* fx, double* fy, double* fz) {
@@ -75,6 +82,76 @@ double integrate(int n, double sigma, double epsilon, double m, double dt, doubl
 	}
 	return U;
 }
+double kinetic_energy(int n, double m, double* vx, double* vy, double* vz) {
+	double K = 0.0;
+	for (int i = 0; i < n; i++) {
+		K += 0.5 * m * (vx[i] * vx[i] + vy[i] * vy[i] + vz[i] * vz[i]);
+	}
+	return K;
+}
+double temperature(int n, double m, double* vx, double* vy, double* vz) {
+	double K = kinetic_energy(n, m, vx, vy, vz);
+	int f = 3 * n - 3;
+	return 2 * K / (f * kb);
+}
+void init_velocities(int n, double* vx, double* vy, double* vz, std::mt19937& gen,
+	double v_std) {
+	std::normal_distribution<double>dist(0.0, v_std);
+	for (int i = 0; i < n; i++) {
+		vx[i] = dist(gen);
+		vy[i] = dist(gen);
+		vz[i] = dist(gen);
+	}
+	double vx_sum = 0.0;
+	double vy_sum = 0.0;
+	double vz_sum = 0.0;
+	for (int i = 0; i < n; i++) {
+		vx_sum += vx[i];
+		vy_sum += vy[i];
+		vz_sum += vz[i];
+	}
+	vx_sum /= n;
+	vy_sum /= n;
+	vz_sum /= n;
+	for (int i = 0; i < n; i++) {
+		vx[i] -= vx_sum;
+		vy[i] -= vy_sum;
+		vz[i] -= vz_sum;
+	}
+}
+double init_positions(int n,
+	double* x, double* y, double* z,
+	double density,
+	double mass)
+{
+	// сколько атомов по ребру
+	int n_side = std::ceil(std::cbrt(n));
+
+	// общий объём системы из плотности
+	double V = (n * mass) / density;
+
+	// длина кубической коробки
+	double L = std::cbrt(V);
+
+	// решётка внутри коробки
+	double spacing = L / n_side;
+
+	int count = 0;
+	for (int i = 0; i < n_side; i++) {
+		for (int j = 0; j < n_side; j++) {
+			for (int k = 0; k < n_side; k++) {
+				if (count < n) {
+					x[count] = i * spacing;
+					y[count] = j * spacing;
+					z[count] = k * spacing;
+					count++;
+				}
+			}
+		}
+	}
+
+	return L;
+}
 double dt = 1e-15;
 int n = 9 * 9 * 9;
 int steps = 50000;
@@ -120,4 +197,3 @@ void  cpu_version() {
 	}
 
 }
-
