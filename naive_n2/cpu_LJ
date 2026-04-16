@@ -1,4 +1,7 @@
 #include <cmath>
+
+
+double U_shift = 4.0 * epsilon * (inv_r12 - inv_r6);
 double Lennard_Jones(int n, double sigma, double epsilon, double m, double r_cut2,
 	double U_shift, double L, double* x,
 	double* y, double* z, double* fx, double* fy, double* fz) {
