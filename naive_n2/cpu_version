@@ -196,3 +196,6 @@ void  cpu_version() {
 	}
 
 }
+int main() {
+	cpu_version();
+}
