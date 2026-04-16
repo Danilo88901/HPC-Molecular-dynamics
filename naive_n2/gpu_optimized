@@ -5,6 +5,7 @@
 #include <cuda.h>
 #include<random>
 #include<chrono>
+#include <fstream>
 double kb = 1.380649e-23;
 double sigma = 3.405e-10;
 double epsilon = 1.654e-21;
@@ -89,7 +90,7 @@ double init_positions(int n,
 }
 double dt = 1e-15;
 int n = 9 * 9 * 9;
-int steps = 50000; 
+int steps = 25000;
 __device__ double atomicAddDouble(double* address, double val) {
 	unsigned long long int* address_as_ull =
 		(unsigned long long int*)address;
@@ -106,6 +107,36 @@ __device__ double atomicAddDouble(double* address, double val) {
 	} while (assumed != old);
 
 	return __longlong_as_double(old);
+}
+__global__ void integrate_coordinates(int n, double m, double L, double dt, double* x, double* y, double* z,
+	double* vx, double* vy, double* vz, double* fx,
+	double* fy, double* fz, double* fx_old, double* fy_old, double* fz_old) {
+	//1 step
+	int i = blockDim.x * blockIdx.x + threadIdx.x;
+	if (i >= n)return;
+	fx_old[i] = fx[i];
+	fy_old[i] = fy[i];
+	fz_old[i] = fz[i];
+	//2 step
+	x[i] += dt * vx[i] + 0.5 * fx[i] / m * dt * dt;
+	x[i] -= L * nearbyint(x[i] / L);
+
+	y[i] += dt * vy[i] + 0.5 * fy[i] / m * dt * dt;
+	y[i] -= L * nearbyint(y[i] / L);
+
+	z[i] += dt * vz[i] + 0.5 * fz[i] / m * dt * dt;
+	z[i] -= L * nearbyint(z[i] / L);
+
+
+}
+__global__ void integrate_velocities(int n, double m, double L, double dt,
+	double* vx, double* vy, double* vz, double* fx,
+	double* fy, double* fz, double* fx_old, double* fy_old, double* fz_old) {
+	int i = blockDim.x * blockIdx.x + threadIdx.x;
+	if (i >= n)return;
+	vx[i] += 0.5 * (fx[i] + fx_old[i]) / m * dt;
+	vy[i] += 0.5 * (fy[i] + fy_old[i]) / m * dt;
+	vz[i] += 0.5 * (fz[i] + fz_old[i]) / m * dt;
 }
 __global__ void optimized_gpu_Leonard_Jones(int n, double sigma, double epsilon, double m, double r_cut2,
 	double U_shift, double L, double* x,
@@ -149,8 +180,11 @@ __global__ void optimized_gpu_Leonard_Jones(int n, double sigma, double epsilon,
 
 
 		__syncthreads();
+		
 		if (i < n) {
 			for (int k = 0; k < blockDim.x; k++) {
+				if (ii + k >= n) break; // ОБЯЗАТЕЛЬНО: не считаем за пределами N
+				if (ii + k == i) continue; // Не считаем взаимодействие частицы с самой
 				double dx = data_x[k] - x_main;
 				dx -= L * nearbyint(dx / L);
 				double dy = data_y[k] - y_main;
@@ -184,21 +218,11 @@ __global__ void optimized_gpu_Leonard_Jones(int n, double sigma, double epsilon,
 		U_block[tx] = 0.0;
 	}
 	__syncthreads();
-	for (int stride = blockDim.x / 2; stride > 32; stride /= 2) {
+	for (int stride = blockDim.x / 2; stride > 0; stride /= 2) {
 		if (tx < stride) {
 			U_block[tx] += U_block[tx + stride];
 		}
 		__syncthreads();
-	}
-	__syncthreads();
-	if (tx < 32) {
-		volatile double* vdata = U_block;
-		vdata[tx] += vdata[tx + 32];
-		vdata[tx] += vdata[tx + 16];
-		vdata[tx] += vdata[tx + 8];
-		vdata[tx] += vdata[tx + 4];
-		vdata[tx] += vdata[tx + 2];
-		vdata[tx] += vdata[tx + 1];
 	}
 	if (tx == 0) {
 		atomicAddDouble(&U[0], 0.5 * U_block[0]);
@@ -209,8 +233,7 @@ __global__ void optimized_gpu_Leonard_Jones(int n, double sigma, double epsilon,
 
 
 void gpu_optimized() {
-	std::mt19937 gen(42); 
-
+	std::mt19937 gen(42);
 
 	int size = n * sizeof(double);
 	double* x = (double*)malloc(size);
@@ -221,7 +244,7 @@ void gpu_optimized() {
 	double* vx = (double*)malloc(size);
 	double* vy = (double*)malloc(size);
 	double* vz = (double*)malloc(size);
-	init_velocities(n, vx, vy, vz, gen,v_std);
+	init_velocities(n, vx, vy, vz, gen, v_std);
 	double* d_x, * d_y, * d_z, * d_vx, * d_vy, * d_vz;
 	cudaMalloc(&d_x, size);
 	cudaMalloc(&d_y, size);
@@ -270,6 +293,7 @@ void gpu_optimized() {
 		std::cout << "Kernel launch error: "
 			<< cudaGetErrorString(err) << std::endl;
 	}
+	cudaDeviceSynchronize(); // очистить очередь
 
 	for (int i = 0; i < steps; i++) {
 		cudaMemset(d_U_total, 0, sizeof(double));
@@ -282,11 +306,10 @@ void gpu_optimized() {
 			std::cout << "Kernel launch error: "
 				<< cudaGetErrorString(err) << std::endl;
 		}
-		//reduction << <grid_size, block_size >> > (n, d_U, d_U_total);
 		integrate_velocities << <grid_size, block_size >> > (n, m, L, dt, d_vx, d_vy, d_vz, d_fx, d_fy, d_fz,
 			d_fx_old, d_fy_old, d_fz_old);
 		if (i % 1000 == 0) {
-
+			cudaDeviceSynchronize();
 			cudaMemcpy(&U_ponetial_sum, d_U_total, sizeof(double), cudaMemcpyDeviceToHost);
 			cudaMemcpy(vx, d_vx, size, cudaMemcpyDeviceToHost);
 			cudaMemcpy(vy, d_vy, size, cudaMemcpyDeviceToHost);
@@ -294,6 +317,7 @@ void gpu_optimized() {
 			double K = kinetic_energy(n, m, vx, vy, vz);
 			double T = temperature(n, m, vx, vy, vz);
 			double E = K + U_ponetial_sum;
+
 			std::cout << "Total energy:" << E << " ";
 			std::cout << "Kinetic energy:" << K << " ";
 			std::cout << "Potential energy:" << U_ponetial_sum << " ";
@@ -304,6 +328,7 @@ void gpu_optimized() {
 	}
 
 }
-int main(){
-gpu_optimized();
+int main() {
+	gpu_optimized();
+
 }
