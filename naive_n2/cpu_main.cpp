@@ -4,10 +4,10 @@
 
 #include "constants.h"
 #include "md.h"
-double dt=1e-15;
-int n=1000;
-int steps=10000;
-int size=n*sizeof(double);
+const int n = 1000;
+const int steps = 10000;
+const double dt = 1e-15;
+
 
 
 int  main() {
