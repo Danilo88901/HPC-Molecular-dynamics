@@ -90,7 +90,7 @@ double init_positions(int n,
 double dt = 1e-15;
 int n = 9 * 9 * 9;
 int steps = 50000;
-_device__ double atomicAddDouble(double* address, double val) {
+__device__ double atomicAddDouble(double* address, double val) {
 	unsigned long long int* address_as_ull =
 		(unsigned long long int*)address;
 
@@ -185,7 +185,7 @@ __global__ void integrate_velocities(int n, double m, double L, double dt,
 	vz[i] += 0.5 * (fz[i] + fz_old[i]) / m * dt;
 }
 void gpu_version() {
-	std::mt19937 gen(42); 
+	std::mt19937 gen(42);
 	int size = n * sizeof(double);
 	double* x = (double*)malloc(size);
 	double* y = (double*)malloc(size);
@@ -195,7 +195,7 @@ void gpu_version() {
 	double* vx = (double*)malloc(size);
 	double* vy = (double*)malloc(size);
 	double* vz = (double*)malloc(size);
-	init_velocities(n, vx, vy, vz, gen,v_std);
+	init_velocities(n, vx, vy, vz, gen, v_std);
 	double* d_x, * d_y, * d_z, * d_vx, * d_vy, * d_vz;
 	cudaMalloc(&d_x, size);
 	cudaMalloc(&d_y, size);
@@ -256,7 +256,6 @@ void gpu_version() {
 			double K = kinetic_energy(n, m, vx, vy, vz);
 			double T = temperature(n, m, vx, vy, vz);
 			double E = K + U;
-
 			std::cout << "Total energy:" << E << " ";
 			std::cout << "Kinetic energy:" << K << " ";
 			std::cout << "Potential energy:" << U << " ";
@@ -266,5 +265,7 @@ void gpu_version() {
 
 	}
 
-
+}
+int main() {
+	gpu_version();
 }
