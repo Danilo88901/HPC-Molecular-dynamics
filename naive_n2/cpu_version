@@ -5,12 +5,83 @@
 #include"derived parameters.h"
 #include "thermodynamics.h"
 #include "initialization.h"
+double Lennard_Jones(int n, double sigma, double epsilon, double m, double r_cut2,
+	double U_shift, double L, double* x,
+	double* y, double* z, double* fx, double* fy, double* fz) {
+	for (int i = 0; i < n; i++) {
+		fx[i] = 0.0;
+		fy[i] = 0.0;
+		fz[i] = 0.0;
+	}
+	double U_total = 0.0;
+	for (int i = 0; i < n; i++) {
+		for (int j = i + 1; j < n; j++) {
+			double dx = x[j] - x[i];
+			dx -= L * nearbyint(dx / L);
+			double dy = y[j] - y[i];
+			dy -= L * nearbyint(dy / L);
+			double dz = z[j] - z[i];
+			dz -= L * nearbyint(dz / L);
+			double r2 = dx * dx + dy * dy + dz * dz;
+			if (r2 > r_cut2)continue;
+			double inv_r2 = sigma * sigma / r2;
+			double inv_r6 = inv_r2 * inv_r2 * inv_r2;
+			double inv_r12 = inv_r6 * inv_r6;
+
+			U_total += 4 * epsilon * (inv_r12 - inv_r6) - U_shift;
+			double F_scalar = 24 * epsilon * (2 * inv_r12 - inv_r6) / r2;
+			double fxx = -F_scalar * dx;
+			double fyy = -F_scalar * dy;
+			double fzz = -F_scalar * dz;
+			fx[i] += fxx;
+			fy[i] += fyy;
+			fz[i] += fzz;
+
+			fx[j] -= fxx;
+			fy[j] -= fyy;
+			fz[j] -= fzz;
+
+
+		}
+	}
+	return U_total;
+}
+double integrate(int n, double sigma, double epsilon, double m, double dt, double r_cut2,
+	double U_shift, double L, double* x,
+	double* y, double* z, double* fx, double* fy, double* fz,
+	double* vx, double* vy, double* vz, double* fx_old, double* fy_old, double* fz_old) {
+	for (int i = 0; i < n; i++) {
+		fx_old[i] = fx[i];
+		fy_old[i] = fy[i];
+		fz_old[i] = fz[i];
+	}
+
+	for (int i = 0; i < n; i++) {
+		x[i] += dt * vx[i] + 0.5 * fx[i] / m * dt * dt;
+		x[i] -= L * round(x[i] / L);
+
+		y[i] += dt * vy[i] + 0.5 * fy[i] / m * dt * dt;
+		y[i] -= L * round(y[i] / L);
+
+		z[i] += dt * vz[i] + 0.5 * fz[i] / m * dt * dt;
+		z[i] -= L * round(z[i] / L);
+	}
+	double U = Lennard_Jones(n, sigma, epsilon, m, r_cut2, U_shift, L, x, y, z, fx, fy, fz);
+
+	for (int i = 0; i < n; i++) {
+		vx[i] += 0.5 * (fx[i] + fx_old[i]) / m * dt;
+		vy[i] += 0.5 * (fy[i] + fy_old[i]) / m * dt;
+		vz[i] += 0.5 * (fz[i] + fz_old[i]) / m * dt;
+	}
+	return U;
+}
 double dt = 1e-15;
 int n = 9 * 9 * 9;
 int steps = 50000;
 void  cpu_version() {
 	std::random_device rd;
 	std::mt19937 gen(rd());
+
 
 
 	int size = n * sizeof(double);
@@ -48,4 +119,5 @@ void  cpu_version() {
 		}
 	}
 
-} 
+}
+
