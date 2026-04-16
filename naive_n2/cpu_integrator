@@ -1,3 +1,5 @@
+#include <cmath>
+#include "md.h"
 double integrate(int n, double sigma, double epsilon, double m, double dt, double r_cut2,
 	double U_shift, double L, double* x,
 	double* y, double* z, double* fx, double* fy, double* fz,
@@ -10,13 +12,13 @@ double integrate(int n, double sigma, double epsilon, double m, double dt, doubl
 
 	for (int i = 0; i < n; i++) {
 		x[i] += dt * vx[i] + 0.5 * fx[i] / m * dt * dt;
-		x[i] -= L * round(x[i] / L);
+		x[i] -= L * std::round(x[i] / L);
 
 		y[i] += dt * vy[i] + 0.5 * fy[i] / m * dt * dt;
-		y[i] -= L * round(y[i] / L);
+		y[i] -= L * std::round(y[i] / L);
 
 		z[i] += dt * vz[i] + 0.5 * fz[i] / m * dt * dt;
-		z[i] -= L * round(z[i] / L);
+		z[i] -= L * std::round(z[i] / L);
 	}
 	double U = Lennard_Jones(n, sigma, epsilon, m, r_cut2, U_shift, L, x, y, z, fx, fy, fz);
 
