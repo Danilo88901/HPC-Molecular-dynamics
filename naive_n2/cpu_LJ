@@ -1,3 +1,5 @@
+#include <cmath>
+#include "constants.h"
 double Lennard_Jones(int n, double sigma, double epsilon, double m, double r_cut2,
 	double U_shift, double L, double* x,
 	double* y, double* z, double* fx, double* fy, double* fz) {
