@@ -156,8 +156,7 @@ double dt = 1e-15;
 int n = 9 * 9 * 9;
 int steps = 50000;
 void  cpu_version() {
-	std::random_device rd;
-	std::mt19937 gen(rd());
+	std::mt19937 gen(42);
 
 
 
