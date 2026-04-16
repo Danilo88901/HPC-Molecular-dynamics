@@ -1,7 +1,8 @@
-double kb = 1.380649e-23;
-double sigma = 3.405e-10;
-double epsilon = 1.654e-21;
-double m = 6.6335e-26;
-double M_PI = 3.1415926535;
-double T = 80.0;
-double v_std = sqrt(kb * T / m);
+#pragma once
+
+extern const double kb;
+extern const double sigma;
+extern const double epsilon;
+extern const double m;
+extern const double T;
+extern const double v_std;
