@@ -2,7 +2,7 @@
 #include <random>
 #include "constants.h"
 #include "parameters.h"
-
+#include"derived parameters.h"
 #include "thermodynamics.h"
 #include "initialization.h"
 double dt = 1e-15;
