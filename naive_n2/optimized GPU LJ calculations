@@ -42,9 +42,6 @@ __global__ void optimized_gpu_Leonard_Jones(int n, double sigma, double epsilon,
 		__syncthreads();
 		if (i < n) {
 			for (int k = 0; k < blockDim.x; k++) {
-				//if (global == i || i>n || global>n)continue;
-				int global_check = ii + k;
-				if (global_check == i || global_check >= n)continue;
 				double dx = data_x[k] - x_main;
 				dx -= L * nearbyint(dx / L);
 				double dy = data_y[k] - y_main;
