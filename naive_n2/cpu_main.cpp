@@ -1,3 +1,16 @@
+#include <iostream>
+#include <random>
+#include <cstdlib>
+
+#include "constants.h"
+#include "md.h"
+double dt=1e-15;
+int n=1000;
+int steps=10000;
+int size=n*sizeof(double);
+
+
+
 int  main() {
 	std::random_device rd;
 	std::mt19937 gen(rd());
