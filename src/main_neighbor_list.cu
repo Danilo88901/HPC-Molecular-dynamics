@@ -187,7 +187,7 @@ int main() {
     std::random_device rd;
     std::mt19937 gen(42);
     System arr;
-    arr.N = 12 * 12 * 12;
+    arr.N = 10 * 10 * 10;
     int size = arr.N * sizeof(double);
     //POSITIONS
     arr.x = (double*)calloc(arr.N, sizeof(double));
