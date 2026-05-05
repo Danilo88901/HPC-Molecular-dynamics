@@ -4,6 +4,8 @@
 // =====================
 // Simulation parameters
 // =====================
+constexpr int steps = 50000;
+
 constexpr double dt = 0.5e-15;
 constexpr double density = 500.0;      // kg/m^3
 constexpr double fraction_eten = 0.5;
