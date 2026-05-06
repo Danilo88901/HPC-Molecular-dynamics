@@ -10,7 +10,7 @@
 #include "bonds.cuh"
 #include "integrator_kernels.cuh"
 
-__global__ void build_verlet_list(int n, double L, int max_neighbors, int* neighbor_count, int* neighbor_list,
+__global__ void build_verlet_list(int n, double L,double L_inverse, int max_neighbors, int* neighbor_count, int* neighbor_list,
 	double* x, double* y, double* z, int* type,
 	double r_cut2) {
 	int i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -26,11 +26,11 @@ __global__ void build_verlet_list(int n, double L, int max_neighbors, int* neigh
 		for (int j = 0; j < n; j++) {
 			if (i == j)continue;
 			double dx = x[j] - xi;
-			dx -= L * rint(dx / L);
+			dx -= L * rint(dx * L_inverse);
 			double dy = y[j] - yi;
-			dy -= L * rint(dy / L);
+			dy -= L * rint(dy * L_inverse);
 			double dz = z[j] - zi;
-			dz -= L * rint(dz / L);
+			dz -= L * rint(dz * L_inverse);
 			double r2 = dx * dx + dy * dy + dz * dz;
 
 			if (r2 < r_cut2) {
@@ -315,9 +315,9 @@ int main() {
     cudaMemset(z_ref, 0, size);
 
     double r_skin = 0.3 * sigma_CH3;
-    double r_cut2 = (2.5 * sigma_CH3 + r_skin) * (2.5 * sigma_CH3 + r_skin);
-    build_verlet_list << <grid_size_LJ, block_size >> > (arr.N, L, max_neighbors, d_neighbor_count, d_neighbor_list,
-        d_x, d_y, d_z, d_type, r_cut2);
+    double r_cut2_skin = (2.5 * sigma_CH3 + r_skin) * (2.5 * sigma_CH3 + r_skin);
+    build_verlet_list << <grid_size_LJ, block_size >> > (arr.N, L, L_inverse max_neighbors, d_neighbor_count, d_neighbor_list,
+        d_x, d_y, d_z, d_type, r_cut2_skin);
     LJ_GPU << <grid_size_LJ, block_size >> > (arr.N, L, L_inverse, d_x, d_y, d_z, d_fx, d_fy, d_fz, sigma_CH3, sigma_CH2, sigma_mix,
         epsilon_CH3, epsilon_CH2, epsilon_mix, r_cut2_CH3, r_cut2_CH2, r_cut2_mix, U_shift_CH3, U_shift_CH2, U_shift_mix,
         d_type, d_h_bond_partner, d_U_total, d_neighbor_count, d_neighbor_list, max_neighbors);
@@ -356,8 +356,8 @@ int main() {
         check_rebuild_list << <grid_size_LJ, block_size >> > (arr.N, L, d_x, d_y, d_z, max_gpu, x_ref, y_ref, z_ref);
         cudaMemcpy(&max_cpu, max_gpu, sizeof(double), cudaMemcpyDeviceToHost);
         if (max_cpu > (r_skin * 0.5) * (r_skin * 0.5)) {
-            build_verlet_list << <grid_size_LJ, block_size >> > (arr.N, L, max_neighbors, d_neighbor_count, d_neighbor_list,
-                d_x, d_y, d_z, d_type, r_cut2);
+            build_verlet_list << <grid_size_LJ, block_size >> > (arr.N, L, L_inverse, max_neighbors, d_neighbor_count, d_neighbor_list,
+                d_x, d_y, d_z, d_type, r_cut2_skin);
             cudaMemcpy(x_ref, d_x, size, cudaMemcpyDeviceToDevice);
             cudaMemcpy(y_ref, d_y, size, cudaMemcpyDeviceToDevice);
             cudaMemcpy(z_ref, d_z, size, cudaMemcpyDeviceToDevice);
