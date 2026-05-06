@@ -17,6 +17,7 @@ __global__ void build_verlet_list(int n, double L, int max_neighbors, int* neigh
 
 
 	if (i < n) {
+        neighbor_count[i]=0;
 		int count = 0;
 		double xi = x[i];
 		double yi = y[i];
