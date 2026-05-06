@@ -316,7 +316,7 @@ int main() {
 
     double r_skin = 0.3 * sigma_CH3;
     double r_cut2_skin = (2.5 * sigma_CH3 + r_skin) * (2.5 * sigma_CH3 + r_skin);
-    build_verlet_list << <grid_size_LJ, block_size >> > (arr.N, L, L_inverse max_neighbors, d_neighbor_count, d_neighbor_list,
+    build_verlet_list << <grid_size_LJ, block_size >> > (arr.N, L, L_inverse, max_neighbors, d_neighbor_count, d_neighbor_list,
         d_x, d_y, d_z, d_type, r_cut2_skin);
     LJ_GPU << <grid_size_LJ, block_size >> > (arr.N, L, L_inverse, d_x, d_y, d_z, d_fx, d_fy, d_fz, sigma_CH3, sigma_CH2, sigma_mix,
         epsilon_CH3, epsilon_CH2, epsilon_mix, r_cut2_CH3, r_cut2_CH2, r_cut2_mix, U_shift_CH3, U_shift_CH2, U_shift_mix,
