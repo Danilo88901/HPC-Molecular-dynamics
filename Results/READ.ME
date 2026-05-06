@@ -1,0 +1,83 @@
+# Molecular Dynamics Performance Benchmark
+
+This project implements and compares different algorithms for non-bonded interaction calculations in Molecular Dynamics simulations, focusing on performance scaling with system size.
+
+## Overview
+
+We evaluate the computational performance of:
+
+- Naive all-pairs O(N²) algorithm
+- Verlet neighbor list optimization
+
+The system consists of a molecular mixture (e.g., ethane/ethylene-like particles), simulated under periodic boundary conditions using GPU acceleration (CUDA).
+
+---
+
+## Neighbor List Method (Verlet List)
+
+To accelerate force computation, we use a Verlet neighbor list with a cutoff radius and a skin distance.
+
+### Key idea:
+Particles are not checked against all others every step. Instead, a neighbor list is rebuilt periodically when particle displacement exceeds a threshold.
+
+### Rebuild condition:
+We track the maximum squared displacement of any particle since the last rebuild:
+
+- If `max_displacement > (r_skin / 2)^2`, the neighbor list is rebuilt.
+
+---
+
+## Experiments
+
+We performed two types of experiments:
+
+### 1. Adaptive rebuild (realistic case)
+
+- Neighbor list is rebuilt dynamically
+- Average rebuild frequency is measured
+- Rebuild occurs irregularly depending on particle motion
+
+We observed that rebuild frequency strongly depends on system size and dynamics, leading to non-trivial performance scaling.
+
+A surprising effect was observed: the number of rebuilds is not strictly proportional to system size and can fluctuate significantly, introducing irregular performance behavior.
+
+---
+
+### 2. Fixed rebuild interval
+
+- Neighbor list is rebuilt every fixed number of steps (e.g., every 30 steps)
+- Used to isolate rebuild overhead and stabilize performance comparison
+
+This eliminates stochastic effects from particle motion and allows clearer scaling analysis.
+
+---
+
+### 3. Naive O(N²) baseline
+
+- Full pairwise force calculation without neighbor lists
+- Used as a reference for worst-case scaling behavior
+
+---
+
+## Observations
+
+- The naive algorithm shows expected quadratic scaling O(N²)
+- The Verlet list method shows near-linear scaling under stable conditions
+- However, adaptive rebuild introduces irregular performance spikes due to variable neighbor list construction cost
+- Performance is highly sensitive to system density and cutoff parameters
+
+---
+
+## Output
+
+All benchmark results are stored in:
+
+- `results/raw/` – raw timing data
+- `results/csv/` – processed datasets
+- `results/plots/` – visualization of scaling behavior
+
+---
+
+## Notes
+
+This project is currently used for performance analysis and algorithm development. A future improvement includes implementing a cell-list method for better scaling at larger system sizes.
